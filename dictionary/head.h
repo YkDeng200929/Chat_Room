@@ -16,10 +16,13 @@
 #include <pthread.h>
 #include <signal.h>
 #include <sqlite3.h>
+#include <sys/poll.h>
+#include <sys/epoll.h>
 #define LOGIN 1
 #define TRANSLATE 2
 #define HISTORY 3
 #define LOGOUT 4
+#define OK 5
 
 /*包*/
 typedef struct pack
@@ -31,16 +34,23 @@ typedef struct pack
 /*显示面板*/
 extern void display(int *option, pack *datapack);
 
-/*登录*/
-extern char *login(int fd, char *buf, int bufsize, pack *data, int size);
+/*密码查询*/
+extern bool checkpasswd(char *name, char *passwd);
+
+/*服务器处理登录信息*/
+extern bool s_login(int fd);
+
+/*客户端处理登录信息*/
+extern bool c_login(int fd);
 
 /*翻译*/
-extern void translate(char *word);
+extern void translate(int fd, char *word);
 
-/*回收子进程*/
-extern void signal_handler(int signum);
+/*打包数据*/
+extern bool zip_pack(char *buf, pack *msg_data, int msg_size);
 
-/*子进程通信*/
-extern int child_do(int cfd);
+/*解压数据*/
+extern bool unzip_pack(pack *msg_data, char *buf, int buf_size);
+
 
 #endif
