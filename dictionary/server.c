@@ -55,19 +55,15 @@ int main(int argc, const char *argv[])
 
     /*打开数据库*/
     sqlite3 *db = NULL;
-
-    ret = sqlite3_open("../dictionary/system.db", &db);
-
+    ret = sqlite3_open("./system.db", &db);
     if (ret != SQLITE_OK)
     {
         printf("sqlite3_open error\n");
         exit(-1);
     }
-
+    /*创建历史记录表*/
     char *sql = "create table if not exists history(WORD text)";
-
     ret = sqlite3_exec(db, sql, NULL, NULL, NULL);
-
     if (ret != SQLITE_OK)
     {
         printf("sqlite3_exec error\n");
@@ -105,6 +101,10 @@ int main(int argc, const char *argv[])
                 }
                 else
                 {
+                    char **result = NULL;
+                    int row = -1;
+                    int column = -1;
+                    int index = -1;
                     char buf[1024] = {0};
                     char temp[1024];
                     memset(buf, 0, sizeof(buf));
@@ -118,67 +118,37 @@ int main(int argc, const char *argv[])
                         printf("type %d name: %s passwd: %s\n", recv_info.type, recv_info.name, recv_info.passwd);//log
                         switch (recv_info.type)
                         {
-                        case 1:
-                            sprintf(temp, "insert into user_table values('%s', '%s')", recv_info.name, recv_info.passwd);
-                            sql = temp;
-                            ret = sqlite3_exec(db, sql, NULL, NULL, NULL);
-                            if (ret != SQLITE_OK)
-                            {
-                                printf("exec\n");
-                                break;
-                            }
-                            else
-                            {
-                                printf("insert ok\n"); // log
-                                break;
-                            }
-                        case 2:
-                            printf("in login\n");//log
-                            sprintf(temp, "select PASSWD from user_table where NAME = '%s'", recv_info.name);
-                            sql = temp;
-                            char **result = NULL;
-                            int row = -1;
-                            int column = -1;
-                            ret = sqlite3_get_table(db, sql, &result, &row, &column, NULL);
-                            int index = column;
-                            printf("row: %d, column: %d, index: %d\n", row, column, index);//log
-                            for (int i = 0; i < row * column; ++i)
-                            {
-                                printf("int get table passwd: %s", result[index]);
-                                ret = strcmp(result[index++], recv_info.passwd);
-                                printf("return val: %d\n", ret);
-                                if (ret == 0)
+                            case REG:
+                                s_reg(db, &recv_info);
+                            case LOGIN:
+                                ret = s_online(db, recv_info.type, getfd, &recv_info, sizeof(recv_info));
+                                if (ret == true)
                                 {
-                                    printf("passwd right\n");
-                                    recv_info.type = 1;
-                                    memset(temp, 0, sizeof(temp));
-                                    zip_pack(temp, &recv_info, sizeof(recv_info));
-                                    send(getfd, temp, sizeof(temp), 0);
+                                    count = 0;
+                                    break;
+                                }
+                                else if (ret == false && count >= 3)
+                                {
+                                    epoll_ctl(epfd, EPOLL_CTL_DEL, getfd, NULL);
+                                    printf("Too many try\n");//log
+                                    count = 0;
+                                    break;
                                 }
                                 else
                                 {
-                                    printf("passwd error\n");
+                                    count++;
+                                    break;
                                 }
-                            }
-                            break;
-                        case 3:
-                            printf("in translate\n");//log
-                            sprintf(temp, "select explain from dict_table where word = '%s'", recv_info.name);
-                            sql = temp;
-                            result = NULL;
-                            row = -1;
-                            column = -1;
-                            ret = sqlite3_get_table(db, sql, &result, &row, &column, NULL);
-                            index = column;
-                            printf("row: %d, column: %d, index: %d\n", row, column, index);
-                            for (int i = 0; i < row * column; ++i)
-                            {
-                                printf("translate: %s\n", result[index]);//log
-                                memset(temp, 0, sizeof(temp));
-                                strcpy(recv_info.name, result[index++]);
-                                zip_pack(temp, &recv_info, sizeof(recv_info));
-                                send(getfd, temp, sizeof(temp), 0);
-                            }
+                            case TRANS:
+                                s_online(db, recv_info.type, getfd, &recv_info, sizeof(recv_info));
+                                break;
+                            case LOGOUT:
+                                epoll_ctl(epfd, EPOLL_CTL_DEL, getfd, NULL);
+                                printf("Del Connection\n");//log
+                                break;
+                            case HISTORY:
+                                s_online(db, recv_info.type, getfd, &recv_info, sizeof(recv_info));
+                                break;
                         }
                     }
                     else if (len == 0)
