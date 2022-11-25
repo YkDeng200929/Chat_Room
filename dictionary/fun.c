@@ -10,9 +10,21 @@ extern bool c_reg(int fd, int option, pack *msg, int msg_size, char *buf, int bu
     printf("Enter passwd: ");
     fgets(msg->passwd, sizeof(msg->passwd), stdin);
     msg->type = option;
-    zip_pack(buf, msg, msg_size);
+    memcpy(buf, (char *)msg, msg_size);
     send(fd, buf, buf_size, 0); // 将用户注册信息传送给服务端
-    return true;
+
+    memset(buf, 0, buf_size);
+    recv(fd, buf, buf_size, 0);
+    memcpy((char *)msg, buf, buf_size);
+    if (msg->type == OK)
+    {
+        printf("Register ok\n");
+        return true;
+    }
+    else
+    {
+        printf("Register error\n");
+    }
 }
 
 /*用户登录(客户端)*/
@@ -26,13 +38,13 @@ extern bool c_login(int *key, int fd, int option, pack *msg, int msg_size, char 
         printf("Enter passwd: ");
         fgets(msg->passwd, sizeof(msg->passwd), stdin);
         msg->type = option;
-        zip_pack(buf, msg, msg_size);
+        memcpy(buf, (char *)msg, msg_size);
         send(fd, buf, buf_size, 0);
         memset(buf, 0, buf_size);
 
         /*接受登录请求结果*/
         recv(fd, buf, buf_size, 0);
-        unzip_pack(msg, buf, buf_size);
+        memcpy((char *)msg, buf, buf_size);
         if (msg->type == 1)
         {
             *key = 1;
@@ -55,7 +67,7 @@ extern bool c_trans(int fd, int option, pack* msg, int msg_size, char *buf, int 
     printf("Please enter the words you wanna translate:");
     fgets(msg->name, sizeof(msg->name), stdin);
     msg->name[strlen(msg->name) - 1] = '\0'; //!!!输出结果有回车, 所以搜索不到结果
-    zip_pack(buf, msg, msg_size);
+    memcpy(buf, (char *)msg, msg_size);
     send(fd, buf, buf_size, 0);
 
     /*接受翻译结果*/
@@ -94,7 +106,7 @@ extern bool c_hist(int fd, int option, pack* msg, int msg_size, char *buf, int b
 /**********************************************************服务端**************************************************************************/
 
 /*用户注册(服务端)*/
-extern bool s_reg(sqlite3 *db, pack *recv_info)
+extern bool s_reg(int fd, sqlite3 *db, pack *recv_info, int info_size)
 {
     char buf[1024] = {0};
     sprintf(buf, "insert into user_table values('%s', '%s')", recv_info->name, recv_info->passwd);
@@ -102,12 +114,18 @@ extern bool s_reg(sqlite3 *db, pack *recv_info)
     int ret = sqlite3_exec(db, sql, NULL, NULL, NULL);
     if (ret != SQLITE_OK)
     {
-        printf("exec\n");
+        recv_info->type = OK;
+        memcpy(buf, (char *)recv_info, info_size);
+        send(fd, buf, sizeof(buf), 0);
+        printf("server: Client register error\n");// log
         return false;
     }
     else
     {
-        printf("insert ok\n"); // log
+        recv_info->type = OK;
+        memcpy(buf, (char *)recv_info, info_size);
+        send(fd, buf, sizeof(buf), 0);
+        printf("server: Register ok\n"); // log
         return true;
     }
 }
@@ -213,18 +231,4 @@ extern bool s_online(sqlite3 *db, int type, int fd, pack *recv_info, int info_si
             return false;
         }
     }
-}
-
-/***************************************************************************其他功能********************************************************************************/
-
-/*打包数据*/
-bool zip_pack(char *buf, pack *msg_data, int msg_size)
-{
-    memcpy(buf, (char *)msg_data, msg_size);
-}
-
-/*解压数据*/
-bool unzip_pack(pack *msg_data, char *buf, int buf_size)
-{
-    memcpy((char *)msg_data, buf, buf_size);
 }

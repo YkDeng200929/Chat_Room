@@ -1,73 +1,74 @@
-#ifndef _HEAD_H
-#define _HEAD_H
+#include "head.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdbool.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <sys/stat.h>
-#include <arpa/inet.h>
-#include <errno.h>
-#include <fcntl.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <signal.h>
-#include <sqlite3.h>
-#include <sys/poll.h>
-#include <sys/epoll.h>
-
-#define OK 0
-#define REG 1
-#define LOGIN 2
-#define TRANS 3
-#define LOGOUT 4
-#define HISTORY 5
-#define ERR 6
-
-
-
-/*鍖�*/
-typedef struct pack
+int main(int argc, const char *argv[])
 {
-    int type;
-    char name[50];
-    char passwd[50];
-}pack;
+    int ret = -1, count = 0, flag = -1;
+    if (argc < 3)
+    {
+        printf("Please enter port and ip\n");
+        exit(-1);
+    }
 
-/******************************************鍏朵粬鍔熻兘**************************************************/
+    int sfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sfd == 0)
+    {
+        perror("socket");
+        return 0;
+    }
 
-/*鎵撳寘鏁版嵁*/
-extern bool zip_pack(char *buf, pack *msg_data, int msg_size);
+    pack recv_info;
+    bzero(&recv_info, sizeof(recv_info));
 
-/*瑙ｅ帇鏁版嵁*/
-extern bool unzip_pack(pack *msg_data, char *buf, int buf_size);
+    struct sockaddr_in saddr, caddr;
+    bzero(&saddr, sizeof(saddr));
+    bzero(&caddr, sizeof(caddr));
+    saddr.sin_family = AF_INET;
+    saddr.sin_port = (htons(atoi(argv[2])));
+    saddr.sin_addr.s_addr = inet_addr(argv[1]);
+    socklen_t slen = sizeof(saddr);
+    socklen_t clen = sizeof(caddr);
 
-/******************************************瀹㈡埛绔姛鑳�************************************************/
+    bind(sfd, (struct sockaddr *)&saddr, sizeof(saddr));
 
-/*鐢ㄦ埛娉ㄥ唽(瀹㈡埛绔�)*/
-extern bool c_reg(int fd, int option, pack* msg, int msg_size, char *buf, int buf_size);
+    ret = listen(sfd, 124);
+    if (ret < 0)
+    {
+        perror("listen");
+        return -1;
+    }
 
-/*鐢ㄦ埛鐧诲綍(瀹㈡埛绔�)*/
-extern bool c_login(int *key, int fd, int option, pack* msg, int msg_size, char *buf, int buf_size);
+    /*将监听描述符挂在树上*/
+    int epfd = epoll_create(100);
+    if (epfd == -1)
+    {
+        perror("epoll_create");
+        exit(-1);
+    }
 
-/*鐢ㄦ埛缈昏瘧(瀹㈡埛绔�)*/
-extern bool c_trans(int fd, int option, pack* msg, int msg_size, char *buf, int buf_size);
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.fd = sfd;
+    epoll_ctl(epfd, EPOLL_CTL_ADD, sfd, &ev);
 
-/*鐢ㄦ埛鑾峰彇鍘嗗彶璁板綍(瀹㈡埛绔�)*/
-extern bool c_hist(int fd, int option, pack* msg, int msg_size, char *buf, int buf_size);
+    struct epoll_event evs[100];
+    int maxlen = sizeof(evs) / sizeof(evs[0]);
 
-/******************************************鏈嶅姟绔姛鑳�************************************************/
-
-/*鐢ㄦ埛娉ㄥ唽(鏈嶅姟绔�)*/
-extern bool s_reg(sqlite3* db, pack* recv_info);
-
-/*鐢ㄦ埛鍦ㄧ嚎鍔熻兘(鏈嶅姟绔�): 鍚櫥褰曠‘璁ょ炕璇戜笌缈昏瘧鍔熻兘*/
-extern bool s_online(sqlite3* db, int type, int fd, pack* recv_info, int info_size);
-
-#endif    }
+    /*打开数据库*/
+    sqlite3 *db = NULL;
+    ret = sqlite3_open("./system.db", &db);
+    if (ret != SQLITE_OK)
+    {
+        printf("sqlite3_open error\n");
+        exit(-1);
+    }
+    /*创建历史记录表*/
+    char *sql = "create table if not exists history(WORD text)";
+    ret = sqlite3_exec(db, sql, NULL, NULL, NULL);
+    if (ret != SQLITE_OK)
+    {
+        printf("sqlite3_exec error\n");
+        exit(-1);
+    }
 
     while (1)
     {
@@ -114,11 +115,12 @@ extern bool s_online(sqlite3* db, int type, int fd, pack* recv_info, int info_si
                     if (len > 0)
                     {
                         unzip_pack(&recv_info, buf, sizeof(buf));
+                        memcpy((char *)&recv_info, buf, sizeof(buf));
                         printf("type %d name: %s passwd: %s\n", recv_info.type, recv_info.name, recv_info.passwd);//log
                         switch (recv_info.type)
                         {
                             case REG:
-                                s_reg(db, &recv_info);
+                                s_reg(getfd, db, &recv_info, sizeof(recv_info));
                             case LOGIN:
                                 ret = s_online(db, recv_info.type, getfd, &recv_info, sizeof(recv_info));
                                 if (ret == true)
@@ -167,6 +169,5 @@ extern bool s_online(sqlite3* db, int type, int fd, pack* recv_info, int info_si
         }
     }
 
-    printf("log:[%d]: in end\n", ++count);
     return 0;
 }

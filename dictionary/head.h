@@ -37,14 +37,6 @@ typedef struct pack
     char passwd[50];
 }pack;
 
-/******************************************其他功能**************************************************/
-
-/*打包数据*/
-extern bool zip_pack(char *buf, pack *msg_data, int msg_size);
-
-/*解压数据*/
-extern bool unzip_pack(pack *msg_data, char *buf, int buf_size);
-
 /******************************************客户端功能************************************************/
 
 /*用户注册(客户端)*/
@@ -62,7 +54,7 @@ extern bool c_hist(int fd, int option, pack* msg, int msg_size, char *buf, int b
 /******************************************服务端功能************************************************/
 
 /*用户注册(服务端)*/
-extern bool s_reg(sqlite3* db, pack* recv_info);
+extern bool s_reg(int fd, sqlite3* db, pack* recv_info, int info_size);
 
 /*用户在线功能(服务端): 含登录确认翻译与翻译功能*/
 extern bool s_online(sqlite3* db, int type, int fd, pack* recv_info, int info_size);
